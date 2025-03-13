@@ -3,7 +3,7 @@
  * ravencoin-burn-address-generator.php: This script generates Ravencoin burn addresses with a custom address prefix.
  * The symbols at the end of the burning address are made for checksum verification.
  *
- * @author Daniel Gockel
+ * forked from @author Daniel Gockel
  * @website https://www.10xrecovery.org/
  */
 
