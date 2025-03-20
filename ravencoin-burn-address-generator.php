@@ -1,96 +1,44 @@
 <?php
-/**
- * ravencoin-burn-address-generator.php: This script generates Ravencoin burn addresses with a custom address prefix.
- * The symbols at the end of the burning address are made for checksum verification.
- *
- * forked from @author Daniel Gockel
- * @website https://www.10xrecovery.org/
- */
-
-require 'vendor/autoload.php';
-
-use StephenHill\Base58;
-use Illuminate\Support\Str;
-
-// Database connection details
-define('DB_HOST', 'your_db_host');
-define('DB_USER', 'your_db_user');
-define('DB_PASS', 'your_db_password');
-define('DB_NAME', 'your_db_name');
-
-function fetchUserProfileId($dbConnection, $userLogin) {
-    $stmt = $dbConnection->prepare("SELECT profile_id FROM db1.users WHERE user_login = ?");
-    $stmt->bind_param("s", $userLogin);
-    $stmt->execute();
-    $stmt->bind_result($profileId);
-    $stmt->fetch();
-    $stmt->close();
-    return $profileId;
-}
-
-function fetchTokenBurnName($dbConnection, $userLogin) {
-    $stmt = $dbConnection->prepare("SELECT burn_name FROM db2.tokens WHERE user_login = ?");
-    $stmt->bind_param("s", $userLogin);
-    $stmt->execute();
-    $stmt->bind_result($burnName);
-    $stmt->fetch();
-    $stmt->close();
-    return $burnName;
-}
-
-function generateRandomBase58($length) {
-    $base58Characters = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-    return substr(str_shuffle(str_repeat($base58Characters, $length)), 0, $length);
-}
-
-function sha256($data) {
-    return hash('sha256', $data, true);
-}
-
-function generateBurnAddress($dbConnection, $userLogin) {
-    $userProfileId = fetchUserProfileId($dbConnection, $userLogin);
-    $tokenBurnName = fetchTokenBurnName($dbConnection, $userLogin);
-
-    if (!$userProfileId || !$tokenBurnName) {
-        die("Failed to fetch user profile ID or token burn name.");
+// Function to encode hex to base58
+function base58_encode($hex) {
+    $base58chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    $dec = gmp_init($hex, 16);
+    $base58 = "";
+    
+    while (gmp_cmp($dec, 58) > 0) {
+        list($div, $mod) = gmp_div_qr($dec, 58);
+        $base58 = $base58chars[gmp_intval($mod)] . $base58;
+        $dec = $div;
     }
-
-    // Construct the prefix
-    $prefix = "R" . $userProfileId . $tokenBurnName;
-
-    $base58 = new Base58();
-
-    foreach (str_split($prefix) as $char) {
-        if (strpos($base58->getAlphabet(), $char) === false) {
-            die("Character '" . $char . "' is not a valid base58 character.");
-        }
-    }
-
-    // Ensure the length of the full address is 34 characters
-    $addressLength = strlen($prefix);
-    if ($addressLength < 34) {
-        $randomPart = generateRandomBase58(34 - $addressLength);
-        $ravencoinAddressPrefix = $prefix . $randomPart;
-    } else {
-        $ravencoinAddressPrefix = substr($prefix, 0, 34);
-    }
-
-    // Decode address
-    $decodedAddress = $base58->decode($ravencoinAddressPrefix);
-    $decodedAddress = substr($decodedAddress, 0, -4); // cut 4 bytes for checksum at the end
-    $checksum = substr(sha256(sha256($decodedAddress)), 0, 4);
-    return $base58->encode($decodedAddress . $checksum);
+    
+    $base58 = $base58chars[gmp_intval($dec)] . $base58;
+    return $base58;
 }
 
-$dbConnection = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+// Function to generate a Ravencoin burn address based on user profile ID and token name
+function generate_profile_burn_address($profile_id, $token_name) {
+    $version_byte = "3c"; // Ravencoin mainnet prefix
+    $data = $profile_id . ":" . strtoupper($token_name); // Ensure case-insensitivity
+    $hash = hash('sha256', $data, true); // Get binary hash
+    $burn_pubkey_hash = bin2hex(substr($hash, 0, 20)); // Take first 20 bytes (Ravencoin pubkey hash)
+    
+    // Compute checksum (first 4 bytes of double SHA256)
+    $payload = $version_byte . $burn_pubkey_hash;
+    $checksum = substr(hash('sha256', hex2bin(hash('sha256', hex2bin($payload)))), 0, 8);
 
-if ($dbConnection->connect_error) {
-    die("Connection failed: " . $dbConnection->connect_error);
+    // Generate final Ravencoin burn address
+    $burn_address = base58_encode($payload . $checksum);
+    return $burn_address;
 }
 
-$userLogin = "vincent-raven";
-$burnAddress = generateBurnAddress($dbConnection, $userLogin);
+// Placeholder for database or user configuration
+// Replace this with your own code to fetch user profile ID from your database or application context
+$profile_id = $['user']['profile-asset-id'] ?? 1; // Default to 1 if no user ID found
 
-echo "Your Ravencoin burning address is: " . $burnAddress;
+// Check if token name is passed via POST (from JavaScript)
+$token_name = isset($_POST['selectedToken']) ? $_POST['selectedToken'] : "DEFAULT_TOKEN";
 
-$dbConnection->close();
+// Example usage
+$burn_address = generate_profile_burn_address($profile_id, $token_name);
+echo "Generated Burn Address: " . $burn_address;
+?>
